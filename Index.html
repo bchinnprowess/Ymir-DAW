@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini BandLab-Style DAW (HTML + WebAudio)</title>
+  <style>
+    :root { color-scheme: dark; }
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:#0b0d10; color:#e8eef6;
+    }
+    header{
+      position:sticky; top:0; z-index:10;
+      background: linear-gradient(180deg,#0f131a,#0b0d10);
+      border-bottom:1px solid #1a2330;
+      padding:12px 14px;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;
+    }
+    .brand{ display:flex; align-items:center; gap:10px; }
+    .dot{ width:10px; height:10px; border-radius:50%; background:#4be06d; box-shadow:0 0 16px rgba(75,224,109,.6); }
+    h1{ font-size:14px; margin:0; letter-spacing:.3px; opacity:.92; }
+    .controls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    button{
+      background:#141b25; color:#e8eef6; border:1px solid #223044;
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+      font-weight:600; font-size:13px;
+    }
+    button:hover{ border-color:#2f4666; }
+    button.primary{ background:#1e2b3d; border-color:#385a86; }
+    button.danger{ background:#2a1416; border-color:#7a2d37; }
+    button:disabled{ opacity:.45; cursor:not-allowed; }
+    .pill{
+      padding:6px 10px; border-radius:999px; border:1px solid #223044; background:#0f141d;
+      font-size:12px; opacity:.92;
+    }
+    main{ padding:14px; max-width:1100px; margin:0 auto; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+    .timeline{
+      border:1px solid #1a2330; border-radius:14px; overflow:hidden;
+      background:#0f141d;
+    }
+    .timelineTop{
+      display:flex; justify-content:space-between; align-items:center;
+      padding:10px 12px; border-bottom:1px solid #1a2330;
+    }
+    .timecode{ font-variant-numeric: tabular-nums; font-weight:700; }
+    .transport{
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    }
+    .tracks{ padding:12px; display:flex; flex-direction:column; gap:10px; }
+    .track{
+      border:1px solid #1a2330; border-radius:14px; overflow:hidden;
+      background:#0b1018;
+    }
+    .trackHead{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;
+      padding:10px 10px; border-bottom:1px solid #1a2330; background:#0f141d;
+    }
+    .trackTitle{
+      display:flex; gap:8px; align-items:center; min-width:220px;
+    }
+    .badge{ font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid #223044; background:#0b1018; opacity:.9; }
+    input[type="text"]{
+      background:#0b1018; color:#e8eef6; border:1px solid #223044; border-radius:10px;
+      padding:8px 10px; font-weight:600; width:220px;
+    }
+    .strip{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .strip button{ padding:7px 10px; border-radius:10px; }
+    .strip .arm{ border-color:#6d3550; }
+    .strip .arm.armed{ background:#3a1624; border-color:#ff4d7d; }
+    .strip .mute.on{ background:#1c202a; border-color:#8494ab; }
+    .strip .solo.on{ background:#1a2433; border-color:#6aa2ff; }
+    .sliders{
+      display:flex; gap:14px; flex-wrap:wrap; align-items:center;
+      padding:10px 10px;
+    }
+    label{ font-size:12px; opacity:.92; display:flex; gap:8px; align-items:center; }
+    input[type="range"]{ width:160px; }
+    canvas{
+      width:100%; height:86px; display:block;
+      background:#071018;
+    }
+    .foot{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;
+      padding:10px 12px; border-top:1px solid #1a2330;
+      background:#0f141d;
+    }
+    .small{ font-size:12px; opacity:.85; line-height:1.35; }
+    a{ color:#9cc6ff; }
+    .warn{ color:#ffd08a; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="dot"></div>
+    <div>
+      <h1>Mini BandLab-Style DAW (WebAudio)</h1>
+      <div class="small">Multitrack record • Mix • Export WAV</div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnEnable" class="primary">Enable Audio</button>
+    <button id="btnAddTrack">Add Track</button>
+    <button id="btnExport">Export Mix WAV</button>
+    <span id="status" class="pill">Audio: OFF</span>
+  </div>
+</header>
+
+<main>
+  <div class="timeline">
+    <div class="timelineTop">
+      <div class="timecode" id="timecode">00:00.000</div>
+      <div class="transport">
+        <button id="btnRecord" class="danger" disabled>● Record</button>
+        <button id="btnPlay" class="primary" disabled>▶ Play</button>
+        <button id="btnPause" disabled>⏸ Pause</button>
+        <button id="btnStop" disabled>■ Stop</button>
+        <span class="pill" id="meterLabel">Master: —</span>
+      </div>
+    </div>
+    <div class="tracks" id="tracks"></div>
+    <div class="foot">
+      <div class="small">
+        Tip: Arm a track, then hit Record. Use headphones to avoid feedback.<br>
+        <span class="warn">Note:</span> This is a lightweight demo, not a full BandLab clone (no MIDI, no clip editing, no cloud).
+      </div>
+      <div class="small">
+        Works best in Chrome/Edge desktop. If mic permission fails, use HTTPS or localhost.
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  // ---------- Utilities ----------
+  const $ = (id) => document.getElementById(id);
+
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function dbToGain(db){ return Math.pow(10, db/20); }
+
+  function formatTime(sec){
+    sec = Math.max(0, sec);
+    const ms = Math.floor((sec % 1) * 1000);
+    const total = Math.floor(sec);
+    const s = total % 60;
+    const m = Math.floor(total / 60);
+    const pad2 = (n)=>String(n).padStart(2,'0');
+    const pad3 = (n)=>String(n).padStart(3,'0');
+    return `${pad2(m)}:${pad2(s)}.${pad3(ms)}`;
+  }
+
+  function encodeWavFromFloat32(stereoL, stereoR, sampleRate){
+    // 16-bit PCM WAV
+    const numChannels = 2;
+    const length = Math.min(stereoL.length, stereoR.length);
+    const bytesPerSample = 2;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = length * blockAlign;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    const writeStr = (off, str) => { for(let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); };
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true); // PCM
+    view.setUint16(20, 1, true);  // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true); // bits
+    writeStr(36, "data");
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for(let i=0;i<length;i++){
+      const l = clamp(stereoL[i], -1, 1);
+      const r = clamp(stereoR[i], -1, 1);
+      view.setInt16(offset, l < 0 ? l * 0x8000 : l * 0x7FFF, true); offset += 2;
+      view.setInt16(offset, r < 0 ? r * 0x8000 : r * 0x7FFF, true); offset += 2;
+    }
+    return new Blob([buffer], { type:"audio/wav" });
+  }
+
+  function downsamplePeaks(float32, width){
+    // Returns min/max pairs for quick waveform drawing
+    const n = float32.length;
+    if(n === 0 || width <= 0) return new Array(width).fill([0,0]);
+    const step = n / width;
+    const peaks = [];
+    for(let x=0;x<width;x++){
+      const start = Math.floor(x * step);
+      const end = Math.floor((x+1) * step);
+      let mn = 1, mx = -1;
+      for(let i=start;i<end && i<n;i++){
+        const v = float32[i];
+        if(v < mn) mn = v;
+        if(v > mx) mx = v;
+      }
+      if(mn === 1 && mx === -1) { mn = 0; mx = 0; }
+      peaks.push([mn, mx]);
+    }
+    return peaks;
+  }
+
+  // ---------- State ----------
+  let ac = null;
+  let masterGain = null;
+  let masterAnalyser = null;
+  let mediaStream = null;
+
+  let isPlaying = false;
+  let isRecording = false;
+  let playStartTime = 0;      // AudioContext time when started
+  let playHeadAtStart = 0;    // seconds on timeline when started
+  let raf = 0;
+
+  const tracks = []; // {id, name, armed, muted, solo, gainDb, pan, clips:[{buffer, start}], nodes..., canvas,..., recorder...}
+  let trackIdCounter = 1;
+
+  // ---------- Audio Graph ----------
+  function ensureAudio(){
+    if(ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+
+    masterGain = ac.createGain();
+    masterGain.gain.value = 1;
+
+    masterAnalyser = ac.createAnalyser();
+    masterAnalyser.fftSize = 2048;
+
+    masterGain.connect(masterAnalyser);
+    masterAnalyser.connect(ac.destination);
+  }
+
+  async function ensureMic(){
+    if(mediaStream) return;
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+
+  // ---------- Track ----------
+  function createTrack(){
+    const id = trackIdCounter++;
+    const t = {
+      id,
+      name: `Track ${id}`,
+      armed: false,
+      muted: false,
+      solo: false,
+      gainDb: -3,
+      pan: 0,
+      clips: [],
+      // UI refs
+      el: null,
+      canvas: null,
+      ctx: null,
+      // Playback nodes (rebuilt per play)
+      playingSources: [],
+    };
+    tracks.push(t);
+    renderTrack(t);
+    updateButtons();
+  }
+
+  function renderTrack(t){
+    const wrap = document.createElement("div");
+    wrap.className = "track";
+
+    const head = document.createElement("div");
+    head.className = "trackHead";
+
+    const title = document.createElement("div");
+    title.className = "trackTitle";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = t.name;
+    nameInput.addEventListener("input", () => { t.name = nameInput.value || `Track ${t.id}`; });
+
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "Audio";
+
+    title.appendChild(nameInput);
+    title.appendChild(badge);
+
+    const strip = document.createElement("div");
+    strip.className = "strip";
+
+    const btnArm = document.createElement("button");
+    btnArm.className = "arm";
+    btnArm.textContent = "Arm";
+    btnArm.addEventListener("click", async () => {
+      if(!ac) return alert("Click Enable Audio first.");
+      await ensureMic();
+      t.armed = !t.armed;
+      btnArm.classList.toggle("armed", t.armed);
+      updateButtons();
+    });
+
+    const btnMute = document.createElement("button");
+    btnMute.className = "mute";
+    btnMute.textContent = "Mute";
+    btnMute.addEventListener("click", () => {
+      t.muted = !t.muted;
+      btnMute.classList.toggle("on", t.muted);
+      updateButtons();
+    });
+
+    const btnSolo = document.createElement("button");
+    btnSolo.className = "solo";
+    btnSolo.textContent = "Solo";
+    btnSolo.addEventListener("click", () => {
+      t.solo = !t.solo;
+      btnSolo.classList.toggle("on", t.solo);
+      updateButtons();
+    });
+
+    const btnClear = document.createElement("button");
+    btnClear.textContent = "Clear Clips";
+    btnClear.addEventListener("click", () => {
+      stopAll();
+      t.clips = [];
+      drawWaveform(t);
+      updateButtons();
+    });
+
+    strip.appendChild(btnArm);
+    strip.appendChild(btnMute);
+    strip.appendChild(btnSolo);
+    strip.appendChild(btnClear);
+
+    head.appendChild(title);
+    head.appendChild(strip);
+
+    const sliders = document.createElement("div");
+    sliders.className = "sliders";
+
+    const vol = document.createElement("input");
+    vol.type = "range"; vol.min = -30; vol.max = 6; vol.step = 0.5; vol.value = t.gainDb;
+    const volLabel = document.createElement("span");
+    volLabel.textContent = `${t.gainDb} dB`;
+    vol.addEventListener("input", () => {
+      t.gainDb = parseFloat(vol.value);
+      volLabel.textContent = `${t.gainDb} dB`;
+    });
+
+    const pan = document.createElement("input");
+    pan.type = "range"; pan.min = -1; pan.max = 1; pan.step = 0.01; pan.value = t.pan;
+    const panLabel = document.createElement("span");
+    const panText = () => t.pan === 0 ? "C" : (t.pan < 0 ? `L${Math.round(Math.abs(t.pan)*100)}` : `R${Math.round(t.pan*100)}`);
+    panLabel.textContent = panText();
+    pan.addEventListener("input", () => {
+      t.pan = parseFloat(pan.value);
+      panLabel.textContent = panText();
+    });
+
+    sliders.appendChild(labelWrap("Vol", vol, volLabel));
+    sliders.appendChild(labelWrap("Pan", pan, panLabel));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1400; canvas.height = 86; // internal resolution
+    const ctx = canvas.getContext("2d");
+
+    wrap.appendChild(head);
+    wrap.appendChild(sliders);
+    wrap.appendChild(canvas);
+
+    t.el = wrap;
+    t.canvas = canvas;
+    t.ctx = ctx;
+
+    $("tracks").appendChild(wrap);
+
+    drawWaveform(t);
+  }
+
+  function labelWrap(name, input, rightEl){
+    const lab = document.createElement("label");
+    const left = document.createElement("span");
+    left.textContent = name;
+    left.style.width = "34px";
+    left.style.opacity = ".9";
+    lab.appendChild(left);
+    lab.appendChild(input);
+    lab.appendChild(rightEl);
+    return lab;
+  }
+
+  function drawWaveform(t){
+    const ctx = t.ctx;
+    const c = t.canvas;
+    if(!ctx || !c) return;
+
+    // background
+    ctx.clearRect(0,0,c.width,c.height);
+    ctx.fillStyle = "#071018";
+    ctx.fillRect(0,0,c.width,c.height);
+
+    // center line
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.beginPath();
+    ctx.moveTo(0, c.height/2);
+    ctx.lineTo(c.width, c.height/2);
+    ctx.stroke();
+
+    // draw each clip as peaks
+    for(const clip of t.clips){
+      const data = clip.buffer.getChannelData(0);
+      const peaks = downsamplePeaks(data, c.width);
+      const mid = c.height/2;
+      ctx.strokeStyle = "rgba(156,198,255,0.75)";
+      ctx.beginPath();
+      for(let x=0;x<peaks.length;x++){
+        const [mn,mx] = peaks[x];
+        const y1 = mid + mn * (mid-6);
+        const y2 = mid + mx * (mid-6);
+        ctx.moveTo(x+0.5, y1);
+        ctx.lineTo(x+0.5, y2);
+      }
+      ctx.stroke();
+    }
+
+    // playhead
+    const ph = getPlayheadSeconds();
+    const maxLen = getProjectLengthSeconds();
+    const x = maxLen > 0 ? (ph / maxLen) * c.width : 0;
+    ctx.strokeStyle = "rgba(255,77,125,0.85)";
+    ctx.beginPath();
+    ctx.moveTo(x,0);
+    ctx.lineTo(x,c.height);
+    ctx.stroke();
+  }
+
+  function redrawAllWaveforms(){
+    for(const t of tracks) drawWaveform(t);
+  }
+
+  // ---------- Transport / Timeline ----------
+  function getPlayheadSeconds(){
+    if(!ac) return 0;
+    if(isPlaying){
+      return playHeadAtStart + (ac.currentTime - playStartTime);
+    }
+    return playHeadAtStart;
+  }
+
+  function setPlayheadSeconds(sec){
+    playHeadAtStart = Math.max(0, sec);
+    $("timecode").textContent = formatTime(playHeadAtStart);
+    redrawAllWaveforms();
+  }
+
+  function getProjectLengthSeconds(){
+    // naive: max clip end across tracks
+    let max = 0;
+    for(const t of tracks){
+      for(const clip of t.clips){
+        const end = clip.start + clip.buffer.duration;
+        if(end > max) max = end;
+      }
+    }
+    // If nothing recorded, assume 10s for playhead scaling
+    return Math.max(max, 10);
+  }
+
+  // ---------- Playback ----------
+  function stopAllSources(){
+    for(const t of tracks){
+      for(const s of t.playingSources){
+        try{ s.stop(); }catch(e){}
+      }
+      t.playingSources = [];
+    }
+  }
+
+  function buildTrackChain(t){
+    // Per-track chain: source -> gain -> panner -> master
+    const g = ac.createGain();
+    g.gain.value = dbToGain(t.gainDb);
+
+    const p = ac.createStereoPanner();
+    p.pan.value = t.pan;
+
+    g.connect(p);
+    p.connect(masterGain);
+
+    return { g, p };
+  }
+
+  function shouldAudible(t){
+    const anySolo = tracks.some(x => x.solo);
+    if(anySolo) return t.solo && !t.muted;
+    return !t.muted;
+  }
+
+  function play(){
+    if(!ac) return;
+    if(isPlaying) return;
+
+    stopAllSources();
+
+    // schedule sources from playhead
+    const when = ac.currentTime + 0.03;
+    const startAt = getPlayheadSeconds();
+
+    for(const t of tracks){
+      if(!shouldAudible(t)) continue;
+      const chain = buildTrackChain(t);
+
+      for(const clip of t.clips){
+        const clipEnd = clip.start + clip.buffer.duration;
+        if(clipEnd <= startAt) continue;
+
+        const src = ac.createBufferSource();
+        src.buffer = clip.buffer;
+
+        // clip offset if playhead is inside clip
+        const offset = Math.max(0, startAt - clip.start);
+        const clipWhen = when + Math.max(0, clip.start - startAt);
+
+        src.connect(chain.g);
+        src.start(clipWhen, offset);
+
+        t.playingSources.push(src);
+      }
+    }
+
+    isPlaying = true;
+    playStartTime = ac.currentTime;
+    playHeadAtStart = startAt;
+
+    updateButtons();
+    tick();
+  }
+
+  function pause(){
+    if(!ac) return;
+    if(!isPlaying) return;
+    const ph = getPlayheadSeconds();
+    stopAllSources();
+    isPlaying = false;
+    setPlayheadSeconds(ph);
+    updateButtons();
+  }
+
+  function stop(){
+    if(!ac) return;
+    stopAllSources();
+    isPlaying = false;
+    setPlayheadSeconds(0);
+    updateButtons();
+  }
+
+  // ---------- Recording ----------
+  async function record(){
+    if(!ac) return alert("Enable Audio first.");
+    await ensureMic();
+
+    const armedTracks = tracks.filter(t => t.armed);
+    if(armedTracks.length === 0) return alert("Arm at least one track.");
+
+    if(isRecording) return;
+
+    // Stop playback sources; recording starts at current playhead
+    if(isPlaying) pause();
+
+    const startAt = getPlayheadSeconds();
+
+    // Create MediaRecorder once, record mic, then decode into buffers and place on each armed track.
+    // NOTE: This records the same mic input to all armed tracks (typical for vocal takes, etc.)
+    const stream = mediaStream;
+    const rec = new MediaRecorder(stream, { mimeType: pickSupportedMime() });
+    const chunks = [];
+
+    rec.ondataavailable = (e) => { if(e.data && e.data.size > 0) chunks.push(e.data); };
+
+    rec.onstop = async () => {
+      const blob = new Blob(chunks, { type: rec.mimeType });
+      const arrayBuf = await blob.arrayBuffer();
+      const audioBuf = await ac.decodeAudioData(arrayBuf);
+
+      for(const t of armedTracks){
+        t.clips.push({ buffer: audioBuf, start: startAt });
+        drawWaveform(t);
+      }
+
+      isRecording = false;
+      updateButtons();
+    };
+
+    isRecording = true;
+    updateButtons();
+    rec.start();
+
+    // run timer while recording
+    const recStartCtxTime = ac.currentTime;
+    const base = startAt;
+
+    const recRaf = () => {
+      if(!isRecording) return;
+      const ph = base + (ac.currentTime - recStartCtxTime);
+      $("timecode").textContent = formatTime(ph);
+      redrawAllWaveforms();
+      requestAnimationFrame(recRaf);
+    };
+    requestAnimationFrame(recRaf);
+
+    // store recorder for stop
+    window.__rec = rec;
+  }
+
+  function stopRecord(){
+    if(!isRecording) return;
+    try{
+      window.__rec?.stop();
+    }catch(e){
+      isRecording = false;
+      updateButtons();
+    }
+  }
+
+  function pickSupportedMime(){
+    const options = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg"
+    ];
+    for(const m of options){
+      if(MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  }
+
+  // ---------- Export Mix ----------
+  async function exportMixWav(){
+    if(!ac) return alert("Enable Audio first.");
+    if(isRecording) stopRecord();
+    if(isPlaying) pause();
+
+    const lengthSec = getProjectLengthSeconds();
+    const sr = ac.sampleRate;
+    const lengthFrames = Math.ceil(lengthSec * sr);
+
+    // Offline render
+    const oac = new OfflineAudioContext(2, lengthFrames, sr);
+    const out = oac.createGain();
+    out.gain.value = 1;
+    out.connect(oac.destination);
+
+    const anySolo = tracks.some(x => x.solo);
+
+    for(const t of tracks){
+      const audible = anySolo ? (t.solo && !t.muted) : !t.muted;
+      if(!audible) continue;
+
+      const g = oac.createGain();
+      g.gain.value = dbToGain(t.gainDb);
+      const p = oac.createStereoPanner();
+      p.pan.value = t.pan;
+
+      g.connect(p);
+      p.connect(out);
+
+      for(const clip of t.clips){
+        const src = oac.createBufferSource();
+        src.buffer = clip.buffer;
+        src.connect(g);
+        src.start(clip.start);
+      }
+    }
+
+    const rendered = await oac.startRendering();
+    const L = rendered.getChannelData(0);
+    const R = rendered.getChannelData(1);
+    const wav = encodeWavFromFloat32(L, R, sr);
+
+    const url = URL.createObjectURL(wav);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mixdown.wav";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }
+
+  // ---------- UI loop ----------
+  function tick(){
+    cancelAnimationFrame(raf);
+
+    const update = () => {
+      if(!ac) return;
+      const ph = getPlayheadSeconds();
+      $("timecode").textContent = formatTime(ph);
+
+      // Master meter (RMS)
+      const buf = new Float32Array(masterAnalyser.fftSize);
+      masterAnalyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for(let i=0;i<buf.length;i++) sum += buf[i]*buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      const db = 20*Math.log10(rms || 1e-8);
+      $("meterLabel").textContent = `Master: ${db.toFixed(1)} dBFS`;
+
+      redrawAllWaveforms();
+
+      // Stop at end
+      if(isPlaying && ph >= getProjectLengthSeconds() + 0.05){
+        pause();
+        setPlayheadSeconds(getProjectLengthSeconds());
+      }
+
+      if(isPlaying) raf = requestAnimationFrame(update);
+    };
+
+    raf = requestAnimationFrame(update);
+  }
+
+  function updateButtons(){
+    const audioOn = !!ac;
+
+    $("btnAddTrack").disabled = !audioOn;
+    $("btnPlay").disabled = !audioOn || tracks.length === 0 || isRecording;
+    $("btnPause").disabled = !audioOn || !isPlaying;
+    $("btnStop").disabled = !audioOn || (tracks.length === 0 && !isPlaying && playHeadAtStart === 0);
+    $("btnRecord").disabled = !audioOn || isPlaying; // record while stopped/paused
+    $("btnExport").disabled = !audioOn || tracks.every(t => t.clips.length === 0);
+
+    $("status").textContent = `Audio: ${audioOn ? "ON" : "OFF"}${isRecording ? " • REC" : ""}${isPlaying ? " • PLAY" : ""}`;
+
+    // record button label changes
+    $("btnRecord").textContent = isRecording ? "■ Stop Rec" : "● Record";
+  }
+
+  function stopAll(){
+    if(isRecording) stopRecord();
+    if(isPlaying) pause();
+  }
+
+  // ---------- Wiring ----------
+  $("btnEnable").addEventListener("click", async () => {
+    try{
+      ensureAudio();
+      await ac.resume();
+      $("status").textContent = "Audio: ON";
+      $("btnEnable").disabled = true;
+      updateButtons();
+    }catch(e){
+      alert("Audio init failed: " + e.message);
+    }
+  });
+
+  $("btnAddTrack").addEventListener("click", createTrack);
+
+  $("btnPlay").addEventListener("click", play);
+  $("btnPause").addEventListener("click", pause);
+  $("btnStop").addEventListener("click", stop);
+
+  $("btnRecord").addEventListener("click", () => {
+    if(isRecording) stopRecord();
+    else record();
+  });
+
+  $("btnExport").addEventListener("click", exportMixWav);
+
+  // Click on any waveform to set playhead position
+  $("tracks").addEventListener("click", (e) => {
+    const canvas = e.target.closest("canvas");
+    if(!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    const maxLen = getProjectLengthSeconds();
+    setPlayheadSeconds(x * maxLen);
+  });
+
+  // initial
+  updateButtons();
+})();
+</script>
+</body>
+</html>
